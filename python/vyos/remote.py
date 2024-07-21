@@ -15,6 +15,7 @@
 
 import os
 import pwd
+import errno
 import shutil
 import socket
 import ssl
@@ -418,6 +419,26 @@ class GitC:
                 raise Exception(out)
 
 
+class FileC:
+    # We simply use system commands to copy via os module because
+    # 1. It's local and rather simple.
+    # 2. Since there's no concept authentication, we don't need to deal with keys/passwords.
+    def __init__(self, url, progressbar=False, check_space=False, source_host=None, source_port=0):
+        self.urlstring = urllib.parse.urlunsplit(url._replace(scheme=""))
+
+    def download(self, location: str):
+        locdir = os.path.dirname(location)
+        if not os.path.exists(locdir):
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), locdir)
+        if not os.path.exists(self.urlstring):
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), self.urlstring)
+        shutil.copyfile(self.urlstring, location)
+
+    # upload is really the same as download when copying
+    def upload(self, location: str):
+        self.download(location)
+
+
 def urlc(urlstring, *args, **kwargs):
     """
     Dynamically dispatch the appropriate protocol class.
@@ -432,6 +453,7 @@ def urlc(urlstring, *args, **kwargs):
         "scp": SshC,
         "tftp": TftpC,
         "git": GitC,
+        "file": FileC
     }
     url = urllib.parse.urlsplit(urlstring)
     scheme, _, _ = url.scheme.partition("+")

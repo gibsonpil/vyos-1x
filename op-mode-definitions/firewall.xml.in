@@ -17,6 +17,7 @@
                 <path>firewall group interface-group</path>
                 <path>firewall group ipv6-address-group</path>
                 <path>firewall group ipv6-network-group</path>
+                <path>firewall group external-list</path>
               </completionHelp>
             </properties>
             <children>

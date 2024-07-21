@@ -27,6 +27,8 @@ from vyos.configdep import set_dependents, call_dependents
 from vyos.configverify import verify_interface_exists
 from vyos.ethtool import Ethtool
 from vyos.firewall import fqdn_config_parse
+from vyos.firewall import external_list_update
+from vyos.firewall import external_list_file_dir
 from vyos.firewall import geoip_update
 from vyos.template import render
 from vyos.utils.dict import dict_search_args
@@ -47,7 +49,8 @@ valid_groups = [
     'domain_group',
     'network_group',
     'port_group',
-    'interface_group'
+    'interface_group',
+    'external_list'
 ]
 
 nested_group_types = [
@@ -64,6 +67,40 @@ snmp_change_type = {
 snmp_event_source = 1
 snmp_trap_mib = 'VYATTA-TRAP-MIB'
 snmp_trap_name = 'mgmtEventTrap'
+
+def external_list_updated(conf, firewall):
+    diff = get_config_diff(conf)
+    node_diff = diff.get_child_nodes_diff(['firewall'], expand_nodes=Diff.DELETE, recursive=True)
+
+    out = {
+        'name': [],
+        'ipv6_name': [],
+        'deleted_name': [],
+        'deleted_ipv6_name': []
+    }
+    updated = False
+
+    results = dict_search_args(firewall, 'group', 'external_list')
+    if results:
+        for key in results:
+            updated = True
+            out['name'].append(key)
+            out['ipv6_name'].append(key)
+
+    results = dict_search_args(node_diff, 'delete', 'group', 'external-list')
+    if results:
+        for key in results:
+            updated = True
+            out['deleted_name'].append(key)
+            out['deleted_ipv6_name'].append(key)
+            list_file = os.path.join(external_list_file_dir, key + '.csv')
+            if os.path.exists(list_file):
+                os.remove(list_file)
+
+    if updated:
+        return out
+
+    return False
 
 def geoip_updated(conf, firewall):
     diff = get_config_diff(conf)
@@ -120,6 +157,7 @@ def get_config(config=None):
         # Update nat and policy-route as firewall groups were updated
         set_dependents('group_resync', conf)
 
+    firewall['external_list_updated'] = external_list_updated(conf, firewall)
     firewall['geoip_updated'] = geoip_updated(conf, firewall)
 
     fqdn_config_parse(firewall)
@@ -217,17 +255,17 @@ def verify_rule(firewall, rule_conf, ipv6):
                 raise ConfigError('Only one of address, fqdn or geoip can be specified')
 
             if 'group' in side_conf:
-                if len({'address_group', 'network_group', 'domain_group'} & set(side_conf['group'])) > 1:
-                    raise ConfigError('Only one address-group, network-group or domain-group can be specified')
+                if len({'address_group', 'network_group', 'domain_group', 'external_list'} & set(side_conf['group'])) > 1:
+                    raise ConfigError('Only one address-group, network-group, domain-group or external-list can be specified')
 
                 for group in valid_groups:
                     if group in side_conf['group']:
                         group_name = side_conf['group'][group]
 
-                        fw_group = f'ipv6_{group}' if ipv6 and group in ['address_group', 'network_group'] else group
+                        fw_group = f'ipv6_{group}' if ipv6 and group in ['address_group', 'network_group', 'external_list'] else group
                         error_group = fw_group.replace("_", "-")
 
-                        if group in ['address_group', 'network_group', 'domain_group']:
+                        if group in ['address_group', 'network_group', 'domain_group', 'external_list']:
                             types = [t for t in ['address', 'fqdn', 'geoip'] if t in side_conf]
                             if types:
                                 raise ConfigError(f'{error_group} and {types[0]} cannot both be defined')
@@ -474,6 +512,12 @@ def apply(firewall):
     if dict_search_args(firewall, 'group', 'domain_group') or firewall['ip_fqdn'] or firewall['ip6_fqdn']:
         domain_action = 'restart'
     call(f'systemctl {domain_action} vyos-domain-resolver.service')
+
+    if firewall['external_list_updated']:
+        # Call helper script to Update set contents
+        if 'name' in firewall['external_list_updated'] or 'ipv6_name' in firewall['external_list_updated']:
+            print('Updating External List(s). Please wait...')
+            external_list_update(firewall)
 
     if firewall['geoip_updated']:
         # Call helper script to Update set contents

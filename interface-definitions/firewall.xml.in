@@ -249,6 +249,19 @@
               </leafNode>
             </children>
           </tagNode>
+          <tagNode name="external-list">
+            <properties>
+              <help>Firewall external lists</help>
+              <constraint>
+                <regex>[a-zA-Z0-9][\w\-\.]*</regex>
+              </constraint>
+            </properties>
+            <children>
+              #include <include/generic-description.xml.i>
+              #include <include/url.xml.i>
+              #include <include/cron-interval.xml.i>
+            </children>
+          </tagNode>
           <tagNode name="mac-group">
             <properties>
               <help>Firewall mac-group</help>
